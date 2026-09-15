@@ -1,0 +1,17 @@
+# Normalise line endings to LF whatever the contributor's OS.
+* text=auto eol=lf
+
+# Binary fixtures must never be line-ending converted — it corrupts them. The
+# list is deliberately broad: a .xls slipped through this on a sibling project
+# because only .xlsx was listed, and git's text=auto heuristic is not something
+# to rely on for an OLE container or a model file.
+*.onnx binary
+*.bin  binary
+*.npy  binary
+*.npz  binary
+*.sqlite binary
+*.db   binary
+*.xlsx binary
+*.xls  binary
+*.png  binary
+*.ico  binary

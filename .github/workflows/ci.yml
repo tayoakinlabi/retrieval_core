@@ -1,0 +1,63 @@
+name: CI
+
+# Both platforms, unlike the sibling Tickmark repo which is Windows-only. This
+# library has no packaging, no installer and no OS calls — the contract puts
+# every OS API in the product layer — so it is genuinely portable, and running
+# Linux as well catches the path and encoding assumptions that a Windows-only
+# run would let through into three products.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Test
+        shell: bash
+        run: |
+          # Failures are echoed back as ::error:: annotations. Downloading a
+          # workflow log needs admin rights on the repository, so a failure that
+          # exists only in the log is one nobody outside this repo can diagnose.
+          status=0
+          uv run pytest -q --tb=line > pytest.log 2>&1 || status=$?
+          cat pytest.log
+          if [ "$status" != "0" ]; then
+            grep -E '^(FAILED|ERROR)' pytest.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            echo "::error::pytest exited $status"
+          fi
+          exit $status

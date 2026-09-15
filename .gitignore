@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build
+build/
+dist/
+
+# CI writes the test output here so failures can be echoed as annotations
+/pytest.log
+
+# Model weights are large and fetched, never committed
+/models/
+
+# OS
+Thumbs.db
+desktop.ini

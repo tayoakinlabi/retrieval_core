@@ -1,0 +1,54 @@
+[project]
+name = "retrieval-core"
+version = "0.1.0"
+description = "Chunking, embedding, storage and retrieval with citable provenance. Internal to the portfolio; never user-facing."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "retrieval-core contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Indexing",
+]
+
+# Deliberately almost nothing. L2 resolved storage to NumPy plus the standard
+# library's sqlite3, against sqlite-vec — which had 204 open issues, no commits
+# since May 2026, and wheels that bake the build machine's AVX level and SIGILL
+# on older CPUs. That is unacceptable in a bundled binary shipped to unknown
+# hardware and unpatchable once installed.
+#
+# onnxruntime and the embedding weights arrive with the embedding backend, which
+# is a later increment. Chunking and storage must not need them: a product
+# reindexing from a cached vector file should not load a model to do it.
+dependencies = [
+    "numpy>=2.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/retrieval_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
