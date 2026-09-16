@@ -4,8 +4,9 @@ Chunking, embedding, storage and retrieval with citable provenance. Internal to
 the portfolio — Minutebook, Knowhow and Overshoulder consume it by git pin.
 **Never published to an index, never user-facing.**
 
-> **Status: in progress.** Chunking and provenance are built. Storage, embedding
-> and retrieval are not yet. See [Build order](#build-order).
+> **Status: in progress.** Chunking, provenance and storage are built, including
+> the deletion cascade. Embedding and dense retrieval are not yet. See
+> [Build order](#build-order).
 
 ## Two rules that shape everything
 
@@ -81,12 +82,33 @@ that has word timings should hand in finer spans rather than rely on it.
 ## Build order
 
 1. ~~Provenance, locators, spans, chunking~~ — **done**
-2. **Storage** — SQLite metadata + FTS5, memmapped NumPy vectors, and the
-   deletion cascade (§4.1), which is the single most important correctness
-   requirement in the contract: a purge that reports success while leaving text
-   searchable converts a privacy feature into a false assurance
+2. ~~Storage — SQLite + FTS5, memmapped vectors, deletion cascade~~ — **done**
 3. **Embedding** — nomic-embed-text-v1.5 via ONNX Runtime, weights bundled
 4. **Hybrid retrieval** — brute-force dense over NumPy, blended with FTS5
+
+## Deletion actually deletes
+
+`delete_by_source` is the most consequential method here. A purge that reports
+success while leaving text searchable converts a privacy feature into a false
+assurance, and a product cannot check from outside the library — so the library
+guarantees it and `verify_deleted` proves it.
+
+Four things go, and three are easy to get wrong:
+
+- **chunk rows** — the obvious part
+- **vectors, with the file compacted** — an orphaned row in the memmap keeps the
+  embedding of deleted text, and embeddings are not anonymous
+- **FTS5 including its shadow tables** — a plain `DELETE` leaves terms in FTS5's
+  own b-tree where they stay readable in the file
+- **`parent_id` links** in both the column *and* the provenance blob, since the
+  blob is what every read deserialises
+
+Then `VACUUM`, because SQLite frees pages rather than overwriting them — and a
+**truncating WAL checkpoint**, because in WAL mode every write appends frames
+that keep the old content until the log is truncated. That last step was found
+by the raw-file test, not by reasoning: the database came back clean, every
+query returned nothing, and the deleted text was sitting in `index.sqlite-wal`
+in plain view.
 
 Storage is NumPy plus the standard library's `sqlite3`. Not `sqlite-vec`: 204
 open issues, no commits since May 2026, and wheels that bake the build machine's

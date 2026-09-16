@@ -34,6 +34,12 @@ from retrieval_core.provenance import (
     TimeLocator,
 )
 from retrieval_core.spans import Span, SpanKind
+from retrieval_core.storage import (
+    Collection,
+    CollectionStats,
+    IndexMismatchError,
+    SourceSummary,
+)
 from retrieval_core.tokens import EstimatingCounter, TokenCounter
 
 __version__ = "0.1.0"
@@ -42,13 +48,17 @@ __all__ = [
     "STRATEGIES",
     "CellLocator",
     "Channel",
+    "Collection",
+    "CollectionStats",
     "Chunk",
     "ChunkingConfig",
     "EstimatingCounter",
     "FileLocator",
+    "IndexMismatchError",
     "Locator",
     "ProvenanceRecord",
     "Source",
+    "SourceSummary",
     "SourceType",
     "Span",
     "SpanKind",
