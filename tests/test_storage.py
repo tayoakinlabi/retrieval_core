@@ -342,3 +342,55 @@ class TestSummaries:
         assert summaries["s1"].chunk_count == 2
         assert summaries["s2"].chunk_count == 1
         assert summaries["s1"].source_title == "doc.pdf"
+
+
+class TestChunkOnTheCollection:
+    """§4 lists ``Collection.chunk``; the work lives in ``chunk_spans``.
+
+    The method is a delegate, so what needs testing is that it *is* one — that
+    the two spellings cannot drift apart and start producing different chunk ids
+    for the same input. Identical ids are what make re-ingest replace rather than
+    duplicate, so a divergence here would fill a collection with two copies of
+    every chunk depending on which entry point a product happened to use.
+    """
+
+    def spans(self):
+        texts = ["First step: open the ledger.", "Second step: reconcile the control account."]
+        out, position = [], 0
+        for text in texts:
+            out.append(Span(text=text, locator=FileLocator(position, position + len(text), page=2)))
+            position += len(text)
+        return out
+
+    def test_it_matches_the_free_function_exactly(self, collection):
+        spans = self.spans()
+
+        through_method = collection.chunk(spans, source("s1"), strategy="steps", ingested_at=WHEN)
+        through_function = chunk_spans(spans, source("s1"), strategy="steps", ingested_at=WHEN)
+
+        assert [c.chunk_id for c in through_method] == [c.chunk_id for c in through_function]
+        assert [c.text for c in through_method] == [c.text for c in through_function]
+
+    def test_it_chunks_and_stores_in_the_natural_order(self, collection):
+        chunks = collection.chunk(self.spans(), source("s1"), strategy="steps", ingested_at=WHEN)
+        collection.upsert(chunks)
+
+        assert collection.stats().chunk_count == 2
+        assert collection.search_lexical("reconcile", k=1)
+
+    def test_it_defaults_to_prose(self, collection):
+        chunks = collection.chunk(self.spans(), source("s1"), ingested_at=WHEN)
+
+        # Prose merges what "steps" keeps apart — proof the strategy argument
+        # reaches the chunker rather than being swallowed by the delegate.
+        assert len(chunks) == 1
+
+    def test_it_passes_the_strategy_through(self, collection):
+        with pytest.raises(ValueError, match="unknown strategy"):
+            collection.chunk(self.spans(), source("s1"), strategy="freestyle")
+
+    def test_chunking_still_needs_no_collection(self):
+        # The reason the free function stays the real one: cutting text up does
+        # not touch the index, so a product can inspect the result before
+        # deciding to store any of it.
+        assert len(chunk_spans(self.spans(), source("s1"), strategy="steps", ingested_at=WHEN)) == 2

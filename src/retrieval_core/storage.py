@@ -37,9 +37,11 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from retrieval_core.chunking import Chunk
+from retrieval_core.chunking import Chunk, ChunkingConfig, Source, chunk_spans
 from retrieval_core.provenance import ProvenanceRecord
 from retrieval_core.retrieval import SearchResult, fuse, normalise_filters
+from retrieval_core.spans import Span
+from retrieval_core.tokens import TokenCounter
 
 if TYPE_CHECKING:  # pragma: no cover - avoids making storage need the embedding extra
     from retrieval_core.embedding import Embedder
@@ -223,6 +225,40 @@ class Collection:
         return np.memmap(self._vector_path, dtype=_DTYPE, mode="r", shape=(count, self.dimension))
 
     # --------------------------------------------------------------- writing
+
+    def chunk(
+        self,
+        spans: list[Span],
+        source: Source,
+        *,
+        strategy: str = "prose",
+        config: ChunkingConfig | None = None,
+        counter: TokenCounter | None = None,
+        ingested_at: datetime | None = None,
+    ) -> list[Chunk]:
+        """Cut spans into chunks — §4's ``Collection.chunk(spans, strategy)``.
+
+        A thin delegate to :func:`~retrieval_core.chunking.chunk_spans`, which
+        is where the work is and which needs no collection: chunking neither
+        reads the index nor writes to it, so a product can cut a file up and
+        inspect the result before deciding to store any of it, and the chunking
+        tests need no directory on disk.
+
+        This exists because the contract lists it, and because
+        ``collection.chunk(...)`` then ``collection.upsert(...)`` is the natural
+        reading order for the common case where a product is going to store what
+        it cuts. ``source`` is required and the contract's signature omits it —
+        it cannot be inferred, because §1.2 means the library never opens the
+        file and only the product knows what it parsed.
+        """
+        return chunk_spans(
+            spans,
+            source,
+            strategy=strategy,
+            config=config,
+            counter=counter,
+            ingested_at=ingested_at,
+        )
 
     def upsert(self, chunks: Sequence[Chunk], vectors: np.ndarray | None = None) -> None:
         """Insert or replace chunks, optionally with their vectors.

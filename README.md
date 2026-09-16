@@ -45,6 +45,12 @@ chunks = chunk_spans(spans, source, strategy="prose")
 chunks[0].cite()  # 'Q3.pdf, p. 14'
 ```
 
+`collection.chunk(spans, source, strategy="prose")` is the same call, for when
+you are about to store what you cut and want it to read in order. The free
+function is the real one: chunking never touches the index, so you can cut a
+file up and look at the result before deciding to keep any of it, and a test of
+chunking needs no directory on disk.
+
 ## Chunking
 
 Four strategies, targets all configurable via `ChunkingConfig`:
