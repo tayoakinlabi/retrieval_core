@@ -23,6 +23,19 @@ from retrieval_core.chunking import (
     Source,
     chunk_spans,
 )
+from retrieval_core.embedding import (
+    DOCUMENT_PREFIX,
+    QUERY_PREFIX,
+    Embedder,
+    HashingEmbedder,
+    pool_and_normalize,
+)
+from retrieval_core.models import (
+    NOMIC_V15_INT8,
+    ModelSpec,
+    WeightsCorruptError,
+    WeightsMissingError,
+)
 from retrieval_core.provenance import (
     CellLocator,
     Channel,
@@ -44,7 +57,14 @@ from retrieval_core.tokens import EstimatingCounter, TokenCounter
 
 __version__ = "0.1.0"
 
+# NomicEmbedder is deliberately absent: importing it here would make the whole
+# package need onnxruntime, and §5's storage path has to work without it.
+# `from retrieval_core.embedding import NomicEmbedder` is the one import that
+# costs the extra, and it should look like it does.
 __all__ = [
+    "DOCUMENT_PREFIX",
+    "NOMIC_V15_INT8",
+    "QUERY_PREFIX",
     "STRATEGIES",
     "CellLocator",
     "Channel",
@@ -52,10 +72,13 @@ __all__ = [
     "CollectionStats",
     "Chunk",
     "ChunkingConfig",
+    "Embedder",
     "EstimatingCounter",
     "FileLocator",
+    "HashingEmbedder",
     "IndexMismatchError",
     "Locator",
+    "ModelSpec",
     "ProvenanceRecord",
     "Source",
     "SourceSummary",
@@ -65,5 +88,8 @@ __all__ = [
     "StepLocator",
     "TimeLocator",
     "TokenCounter",
+    "WeightsCorruptError",
+    "WeightsMissingError",
     "chunk_spans",
+    "pool_and_normalize",
 ]

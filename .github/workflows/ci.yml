@@ -45,6 +45,11 @@ jobs:
       - name: Check formatting
         run: uv run ruff format --check .
 
+      # The embedding tests skip here: they need a 137 MB weights file, and
+      # downloading it per job per OS to test what a local run covers properly
+      # is not a trade worth making. The maths that decides whether an embedding
+      # is right — pooling, layer norm, Matryoshka truncation order — needs no
+      # weights and does run, on both platforms.
       - name: Test
         shell: bash
         run: |

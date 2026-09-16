@@ -4,8 +4,8 @@ Chunking, embedding, storage and retrieval with citable provenance. Internal to
 the portfolio — Minutebook, Knowhow and Overshoulder consume it by git pin.
 **Never published to an index, never user-facing.**
 
-> **Status: in progress.** Chunking, provenance and storage are built, including
-> the deletion cascade. Embedding and dense retrieval are not yet. See
+> **Status: in progress.** Chunking, provenance, storage and embedding are
+> built, including the deletion cascade. Hybrid retrieval is not yet. See
 > [Build order](#build-order).
 
 ## Two rules that shape everything
@@ -57,11 +57,13 @@ Four strategies, targets all configurable via `ChunkingConfig`:
 | `tabular` | header + 20 rows | header repeated | **never** split a row |
 
 `chunk_size = min(model context, strategy target)` — **the model's context is a
-ceiling, not a target.** Filling nomic v1.5's 8192-token window with one chunk
-would dilute the embedding until nothing distinctive survives, destroy citation
-granularity, and match many queries weakly instead of few strongly. The large
-window is valuable because it means nothing is ever *forced* to fragment: a long
-speaker turn or a verbose step can stay whole.
+ceiling, not a target.** Filling the window with one chunk would dilute the
+embedding until nothing distinctive survives, destroy citation granularity, and
+match many queries weakly instead of few strongly. The window matters because it
+means nothing is *forced* to fragment: a long speaker turn or a verbose step can
+stay whole. At 2048 usable tokens (see [Embedding](#embedding)) that covers a
+turn of roughly 1,500 words, which is longer than anything the three products
+have produced so far.
 
 Overlap repeats **whole spans**, never slices of text. A half-paragraph overlap
 would have to claim a locator it does not own.
@@ -83,8 +85,92 @@ that has word timings should hand in finer spans rather than rely on it.
 
 1. ~~Provenance, locators, spans, chunking~~ — **done**
 2. ~~Storage — SQLite + FTS5, memmapped vectors, deletion cascade~~ — **done**
-3. **Embedding** — nomic-embed-text-v1.5 via ONNX Runtime, weights bundled
+3. ~~Embedding — nomic-embed-text-v1.5 via ONNX Runtime~~ — **done**
 4. **Hybrid retrieval** — brute-force dense over NumPy, blended with FTS5
+
+## Embedding
+
+nomic-embed-text-v1.5, INT8 ONNX, on the CPU. Always local — the API-key path in
+the portfolio covers generation only, so a lapsed key never renders an index
+unusable and collections stay re-indexable offline.
+
+```python
+from retrieval_core.embedding import NomicEmbedder
+
+embedder = NomicEmbedder.load()  # add allow_download=True on a fresh checkout
+vectors = embedder.embed_documents([chunk.text for chunk in chunks])
+query = embedder.embed_query("When is the VAT return due?")
+scores = vectors @ query  # unit vectors, so this is cosine
+```
+
+`onnxruntime` and `tokenizers` are the `embedding` extra, not base dependencies.
+Chunking and storage work without them, and `import retrieval_core` does not pull
+them in — a product re-indexing from a cached vector file should not load a
+60 MB runtime to do it.
+
+### Three things that go wrong silently
+
+**The task prefixes are internal.** Nomic wants `search_document:` on indexed
+text and `search_query:` on queries. There are two methods, not one method with a
+flag, and no way to spell either wrong — a flag is exactly how a default gets
+inverted somewhere up the stack with nothing failing and nothing logging.
+
+**Truncate before normalising.** The order is mean-pool → layer-norm →
+*truncate* → L2-normalise. Matryoshka works because the leading dimensions carry
+the signal, but the first 256 components of a unit vector are not themselves a
+unit vector. Truncating afterwards leaves vectors of varying length, a dot
+product stops being a cosine, and results reorder by how much of each vector's
+mass happened to land in the leading dimensions.
+
+**Padding is excluded from the mean**, not averaged in as zeros — otherwise a
+short text's vector is pulled toward the origin in proportion to how much
+padding it happened to receive.
+
+### Two things measured here that the contract did not expect
+
+**The usable context is 2048 tokens, not 8192.** The checkpoint's `config.json`
+reports `max_trained_positions: 2048` with no rotary scaling factor set, so
+positions beyond that are untrained. The export will still *run* longer inputs —
+but a single 8192-token forward pass took **949 seconds** on this machine against
+3.9 s at 4096 and 1.4 s at 2048. The model spec pins 2048, and `TokenizerCounter`
+subtracts the prefix and special tokens on top, so chunks are sized against a
+ceiling the text can actually occupy.
+
+**Batching changes the vectors, so batching is off by default.** Two different
+texts in one forward pass move each other's hidden states by around 10%; the
+same text twice changes nothing, bit for bit. That is dynamic quantisation — the
+INT8 graph derives activation scales from each tensor's range at runtime. It
+survives pooling as roughly 0.985 cosine between a text embedded alone and
+embedded beside others.
+
+0.985 sounds harmless and is not. This model was chosen over BGE Small precisely
+because same-domain similarity fell from 0.93–0.97 to 0.46–0.70, which is what
+made vector dedup usable; a 0.985 noise floor set by batch composition sits above
+that entire band. It also breaks reproducibility — re-indexing a corpus would
+produce vectors that no longer match their neighbours from the first pass.
+
+So `batch_size` defaults to 1. Measured cost: 71 texts/s against 135 at batch 16,
+which is under two minutes per 10,000 chunks either way for a one-off job.
+`test_the_int8_export_is_still_batch_sensitive` is a canary — if a future export
+fixes this, that test fails and the default can go back up.
+
+### Weights
+
+137 MB, so they cannot live in git. Products bundle them in the installer;
+a checkout downloads them once into `%LOCALAPPDATA%\retrieval-core\models`.
+
+```python
+NomicEmbedder.load(allow_download=True)  # once, then never again
+```
+
+`resolve()` looks in the product's bundled directory first, then the cache, and
+**refuses to reach the network unless asked** — an offline install that quietly
+started downloading a model would break the privacy claim on the one machine
+least able to notice. Every file is SHA-256 checked on every load, bundled copies
+included, against a pinned commit rather than `main`. Not because downloads fail
+loudly, but because they fail quietly: wrong weights do not crash, they produce
+embeddings that are merely wrong, and the index looks completely normal for as
+long as it lives.
 
 ## Deletion actually deletes
 
@@ -117,10 +203,18 @@ unknown hardware and unpatchable once installed.
 
 ## Tokenization
 
-Chunking needs token counts; the real tokenizer arrives with the embedding
-model. Until then `EstimatingCounter` stands in behind the same interface. It
-rounds **up** deliberately: an under-count could push a chunk past the model's
-ceiling and have it silently truncated, losing text the index claims is there.
+Chunking needs token counts. `EstimatingCounter` needs no model and rounds **up**
+deliberately — an under-count could push a chunk past the model's ceiling and
+have it silently truncated, losing text the index claims is there.
+
+With weights available, `embedder.token_counter` is the model's own tokenizer
+behind the same interface, and its `max_context` is the model's ceiling *minus*
+the task prefix and special tokens. The caller's text is never what reaches the
+model, and a chunk sized against the raw ceiling loses its tail.
+
+```python
+chunks = chunk_spans(spans, source, counter=embedder.token_counter)
+```
 
 ## Licence
 

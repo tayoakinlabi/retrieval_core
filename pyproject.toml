@@ -28,11 +28,27 @@ dependencies = [
     "numpy>=2.1",
 ]
 
+# The embedding backend, kept out of the base install on purpose. A product
+# reindexing from a cached vector file, or one that only chunks and stores,
+# should not pull in a 60 MB runtime to do it — and `pip install retrieval-core`
+# failing on a machine with no onnxruntime wheel would take chunking and storage
+# down with it. `pooling` below is importable without either of these.
+[project.optional-dependencies]
+embedding = [
+    "onnxruntime>=1.20",
+    "tokenizers>=0.21",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
     "ruff>=0.9",
+    # Mirrors the `embedding` extra so CI exercises the backend as far as it
+    # goes without weights. The weights themselves are not downloaded in CI:
+    # 137 MB per job, per OS, to test what a local run covers properly.
+    "onnxruntime>=1.20",
+    "tokenizers>=0.21",
 ]
 
 [build-system]
