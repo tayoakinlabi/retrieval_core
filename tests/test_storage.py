@@ -302,11 +302,14 @@ class TestDeletionCascade:
         assert collection.verify_deleted("s1")
 
     def test_deleting_one_source_leaves_the_others_searchable(self, collection):
-        collection.upsert(chunks_for("s1", ["alpha unique_alpha"]))
-        collection.upsert(chunks_for("s2", ["beta unique_beta"]))
+        # Terms that share no tokens: FTS5 splits on punctuation, so a fixture
+        # using "unique_alpha" and "unique_beta" would have both chunks match
+        # "unique" and the assertion would be testing the tokenizer instead.
+        collection.upsert(chunks_for("s1", ["alpha zarquonalpha"]))
+        collection.upsert(chunks_for("s2", ["beta zarquonbeta"]))
         collection.delete_by_source("s1")
-        assert collection.search_lexical("unique_alpha") == []
-        assert collection.search_lexical("unique_beta")
+        assert collection.search_lexical("zarquonalpha") == []
+        assert collection.search_lexical("zarquonbeta")
 
     def test_everything_can_be_deleted(self, collection):
         collection.upsert(chunks_for("s1", ["a"]), vectors_for(1))

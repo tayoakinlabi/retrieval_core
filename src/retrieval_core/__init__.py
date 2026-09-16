@@ -46,6 +46,7 @@ from retrieval_core.provenance import (
     StepLocator,
     TimeLocator,
 )
+from retrieval_core.retrieval import RRF_K, SearchResult, fuse
 from retrieval_core.spans import Span, SpanKind
 from retrieval_core.storage import (
     Collection,
@@ -65,6 +66,7 @@ __all__ = [
     "DOCUMENT_PREFIX",
     "NOMIC_V15_INT8",
     "QUERY_PREFIX",
+    "RRF_K",
     "STRATEGIES",
     "CellLocator",
     "Channel",
@@ -80,6 +82,7 @@ __all__ = [
     "Locator",
     "ModelSpec",
     "ProvenanceRecord",
+    "SearchResult",
     "Source",
     "SourceSummary",
     "SourceType",
@@ -91,5 +94,6 @@ __all__ = [
     "WeightsCorruptError",
     "WeightsMissingError",
     "chunk_spans",
+    "fuse",
     "pool_and_normalize",
 ]

@@ -4,8 +4,8 @@ Chunking, embedding, storage and retrieval with citable provenance. Internal to
 the portfolio — Minutebook, Knowhow and Overshoulder consume it by git pin.
 **Never published to an index, never user-facing.**
 
-> **Status: in progress.** Chunking, provenance, storage and embedding are
-> built, including the deletion cascade. Hybrid retrieval is not yet. See
+> **Status: v1 surface complete.** Chunking, provenance, storage, embedding
+> and hybrid retrieval are built, including the deletion cascade. See
 > [Build order](#build-order).
 
 ## Two rules that shape everything
@@ -86,7 +86,7 @@ that has word timings should hand in finer spans rather than rely on it.
 1. ~~Provenance, locators, spans, chunking~~ — **done**
 2. ~~Storage — SQLite + FTS5, memmapped vectors, deletion cascade~~ — **done**
 3. ~~Embedding — nomic-embed-text-v1.5 via ONNX Runtime~~ — **done**
-4. **Hybrid retrieval** — brute-force dense over NumPy, blended with FTS5
+4. ~~Hybrid retrieval — brute-force dense over NumPy, blended with FTS5~~ — **done**
 
 ## Embedding
 
@@ -171,6 +171,70 @@ included, against a pinned commit rather than `main`. Not because downloads fail
 loudly, but because they fail quietly: wrong weights do not crash, they produce
 embeddings that are merely wrong, and the index looks completely normal for as
 long as it lives.
+
+## Retrieval
+
+```python
+results = collection.search("VAT payment deadline", k=5, embedder=embedder)
+for result in results:
+    print(result.cite(), result.dense_score, result.lexical_score)
+    text = collection.expand(result)  # small-to-big: the parent section
+```
+
+`alpha` is the dense weight: 1.0 is dense only, 0.0 is lexical only and needs no
+embedder at all. `filters` takes `source_id` and `source_type`, either a single
+value or a list.
+
+### Why the two arms are fused by rank, not by score
+
+Cosine is bounded and means the same thing between queries. BM25 is unbounded
+and depends on the corpus. Adding them is meaningless, and **min-max
+normalising each side first — the usual fix — fabricates confidence**: it
+rescales whatever it is handed to fill [0, 1], so the best of five irrelevant
+chunks scores exactly 1.0, identical to a perfect match. A query that found
+nothing then looks like a query that found the answer.
+
+So the default is weighted Reciprocal Rank Fusion, which uses only positions:
+`weight / (60 + rank)`, summed across the arms that found a chunk. Nothing is
+rescaled and the fused order is unchanged whether BM25 returned 4 or 400 — there
+is a test that multiplies every lexical score by 100 and asserts the ranking is
+identical.
+
+What RRF gives up is magnitude, so `SearchResult` carries `dense_score` and
+`lexical_score` separately. **Threshold on those, never on `score`** — the fused
+number is a ranking quantity with no units.
+
+One consequence worth knowing: **alpha is a lean, not a switch.** A chunk placed
+well by both arms is hard to dislodge. In the test corpus a decoy that is second
+densely and first lexically holds the top slot until alpha passes 0.984; to get
+one arm alone you ask for 0.0 or 1.0. That is agreement doing its job, and it is
+the reason to fuse in the first place.
+
+### Calibrate relevance cutoffs, do not assume them
+
+This model does not put unrelated text near zero. Measured on a five-chunk
+fixture: a nonsense query ("quantum chromodynamics lattice gauge") scored 0.511
+against its best chunk, where a real query scored 0.696. The floor for unrelated
+English sits around 0.35–0.55, so a product that treats 0.5 as "somewhat
+related" will accept everything.
+
+### The lexical arm matches partially
+
+FTS5's implicit operator is AND. Quoting each term and joining with spaces —
+which is what this library did until hybrid search was tested end to end — means
+every term must appear in the same chunk, so *"When is the VAT return due?"*
+matched nothing at all and hybrid search silently ran on one arm against exactly
+the queries people type. Terms are OR-ed now, and BM25 does what it is for:
+rank by how many terms matched and how rare they were. Each term is still
+quoted, so `profit AND loss` and `margin*` are searched for as words.
+
+### Filters bite before the cut
+
+A filter goes into the SQL and into the row selection, never onto the results.
+Filtering afterwards takes the global top k and discards most of it — a filter
+matching two hundred chunks returns three hits, which reads as a relevance
+problem rather than a bug. An unknown filter key raises rather than being
+ignored: a silently dropped filter is a disclosure bug, not a quality one.
 
 ## Deletion actually deletes
 
